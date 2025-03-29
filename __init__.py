@@ -4,7 +4,8 @@ from .parser import (
     parse_metaphlan_file,
     combine_samples,
     load_metadata,
-    join_abundance_with_metadata
+    join_abundance_with_metadata,
+    diagnostic_file_check
 )
 
 from .stats import (
