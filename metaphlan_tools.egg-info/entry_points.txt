@@ -1,0 +1,2 @@
+[console_scripts]
+metaphlan_tools = metaphlan_tools.cli:main

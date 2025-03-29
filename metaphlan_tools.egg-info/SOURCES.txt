@@ -1,0 +1,8 @@
+README.md
+setup.py
+metaphlan_tools.egg-info/PKG-INFO
+metaphlan_tools.egg-info/SOURCES.txt
+metaphlan_tools.egg-info/dependency_links.txt
+metaphlan_tools.egg-info/entry_points.txt
+metaphlan_tools.egg-info/requires.txt
+metaphlan_tools.egg-info/top_level.txt
