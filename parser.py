@@ -117,12 +117,24 @@ def load_metadata(metadata_file, sample_id_col='SampleID'):
         DataFrame containing metadata with sample ID as index
     """
     # Determine file type based on extension
+    print(f"Type of metadata_file: {type(metadata_file)}")
+    print(f"Value of metadata_file: {metadata_file}")
+    # Option 1: Check each extension separately
     if metadata_file.endswith('.csv'):
         metadata = pd.read_csv(metadata_file)
-    elif metadata_file.endswith(('.xlsx', '.xls')):
+    elif metadata_file.endswith('.xlsx') or metadata_file.endswith('.xls'):
         metadata = pd.read_excel(metadata_file)
     else:
         raise ValueError("Metadata file must be CSV or Excel format")
+
+    # Option 2: Convert Path objects to string if needed
+    if str(metadata_file).endswith('.csv'):
+        metadata = pd.read_csv(metadata_file)
+    elif str(metadata_file).endswith('.xlsx') or str(metadata_file).endswith('.xls'):
+        metadata = pd.read_excel(metadata_file)
+    else:
+        raise ValueError("Metadata file must be CSV or Excel format")
+
     
     # Set sample ID as index
     if sample_id_col in metadata.columns:
