@@ -167,7 +167,7 @@ def combine_samples(files, sample_ids=None, taxonomic_level='species'):
         try:
             # Parse the MetaPhlAn file using our robust parser
             print(f"Processing file {i+1}/{len(files)}: {os.path.basename(file_path)}")
-            df = patched_parse_metaphlan_file(file_path, taxonomic_level)
+            df = parse_metaphlan_file(file_path, taxonomic_level)
             
             # Set column name to sample ID
             df.columns = [sample_ids[i]]
