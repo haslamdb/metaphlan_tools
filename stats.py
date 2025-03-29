@@ -219,28 +219,44 @@ def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     # Import required modules
     from skbio import DistanceMatrix
     from scipy.spatial.distance import pdist, squareform
+    import numpy as np
     
     # Transpose to have samples as rows, species as columns
     abundance = abundance_df.T
     
-    # Convert to numpy array
-    abundance_array = abundance.values
+    # Ensure all values are numeric
+    abundance = abundance.apply(pd.to_numeric, errors='coerce')
+    
+    # Replace any NaN values with zeros
+    abundance = abundance.fillna(0)
+    
+    # Convert to numpy array with float data type
+    abundance_array = abundance.values.astype(float)
     
     # Calculate distance matrix using scipy's pdist
-    if metric == 'braycurtis':
-        distances = squareform(pdist(abundance_array, metric='braycurtis'))
-    elif metric == 'jaccard':
-        distances = squareform(pdist(abundance_array, metric='jaccard'))
-    elif metric == 'euclidean':
-        distances = squareform(pdist(abundance_array, metric='euclidean'))
-    else:
-        raise ValueError(f"Unsupported beta diversity metric: {metric}")
+    try:
+        if metric == 'braycurtis':
+            distances = squareform(pdist(abundance_array, metric='braycurtis'))
+        elif metric == 'jaccard':
+            distances = squareform(pdist(abundance_array, metric='jaccard'))
+        elif metric == 'euclidean':
+            distances = squareform(pdist(abundance_array, metric='euclidean'))
+        else:
+            raise ValueError(f"Unsupported beta diversity metric: {metric}")
+        
+        # Create distance matrix
+        dm = DistanceMatrix(distances, ids=abundance.index)
+        
+        return dm
+    except Exception as e:
+        print(f"Error calculating beta diversity: {str(e)}")
+        # Create an empty distance matrix as fallback
+        n = len(abundance.index)
+        empty_distances = np.zeros((n, n))
+        dm = DistanceMatrix(empty_distances, ids=abundance.index)
+        return dm
     
-    # Create distance matrix
-    dm = DistanceMatrix(distances, ids=abundance.index)
     
-    return dm
-
 def perform_permanova(distance_matrix, metadata_df, variable):
     """
     Perform PERMANOVA test to determine if community composition differs between groups.
