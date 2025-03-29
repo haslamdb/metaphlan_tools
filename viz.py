@@ -152,17 +152,39 @@ def plot_alpha_diversity_boxplot(alpha_df, metadata_df, variable, figsize=(12, 6
     
     # Plot each metric
     for i, metric in enumerate(alpha_df.columns):
-        sns.boxplot(x=variable, y=metric, data=merged, ax=axes[i])
-        axes[i].set_title(f"{metric} Diversity")
-        axes[i].set_xlabel(variable)
-        
-        # Rotate x-axis labels if there are many groups
-        if merged[variable].nunique() > 3:
-            axes[i].set_xticklabels(axes[i].get_xticklabels(), rotation=45, ha='right')
+        # Check if all values for this metric are the same
+        if merged[metric].nunique() <= 1:
+            # Just add text instead of a boxplot
+            axes[i].text(0.5, 0.5, f"All values are identical\n{metric} = {merged[metric].iloc[0]:.4f}",
+                        horizontalalignment='center', verticalalignment='center',
+                        transform=axes[i].transAxes, fontsize=12)
+            axes[i].set_title(f"{metric} Diversity")
+            axes[i].set_xlabel(variable)
+            # Remove axis ticks for empty plot
+            axes[i].set_xticks([])
+            axes[i].set_yticks([])
+        else:
+            # Regular boxplot for data with variation
+            try:
+                sns.boxplot(x=variable, y=metric, data=merged, ax=axes[i])
+                axes[i].set_title(f"{metric} Diversity")
+                axes[i].set_xlabel(variable)
+                
+                # Rotate x-axis labels if there are many groups
+                if merged[variable].nunique() > 3:
+                    axes[i].set_xticklabels(axes[i].get_xticklabels(), rotation=45, ha='right')
+            except Exception as e:
+                # Handle any plotting errors
+                axes[i].text(0.5, 0.5, f"Error creating plot:\n{str(e)}",
+                            horizontalalignment='center', verticalalignment='center',
+                            transform=axes[i].transAxes, fontsize=10, color='red')
+                axes[i].set_title(f"{metric} Diversity")
+                # Remove axis ticks for error plot
+                axes[i].set_xticks([])
+                axes[i].set_yticks([])
     
     plt.tight_layout()
     return fig
-
 
 def plot_stacked_bar(abundance_df, metadata_df=None, group_var=None, top_n=10, 
                     other_category=True, sort_by=None, figsize=(12, 8)):
