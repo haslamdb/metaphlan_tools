@@ -216,7 +216,6 @@ def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     skbio.DistanceMatrix
         Distance matrix of beta diversity between samples
     """
-    # Import required modules
     from skbio import DistanceMatrix
     from scipy.spatial.distance import pdist, squareform
     import numpy as np
@@ -233,30 +232,40 @@ def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     # Convert to numpy array with float data type
     abundance_array = abundance.values.astype(float)
     
-    # Calculate distance matrix using scipy's pdist
     try:
+        # Calculate distance matrix
         if metric == 'braycurtis':
             distances = squareform(pdist(abundance_array, metric='braycurtis'))
         elif metric == 'jaccard':
-            distances = squareform(pdist(abundance_array, metric='jaccard'))
+            # For jaccard, convert to binary presence/absence first
+            binary_array = (abundance_array > 0).astype(float)
+            distances = squareform(pdist(binary_array, metric='jaccard'))
         elif metric == 'euclidean':
             distances = squareform(pdist(abundance_array, metric='euclidean'))
         else:
             raise ValueError(f"Unsupported beta diversity metric: {metric}")
         
+        # Check for NaN values and replace with zeros (happens when rows have all zeros)
+        if np.isnan(distances).any():
+            print("Warning: NaN values found in distance matrix, replacing with zeros")
+            distances = np.nan_to_num(distances)
+        
+        # Ensure symmetry by averaging with its transpose
+        distances = (distances + distances.T) / 2
+        
         # Create distance matrix
         dm = DistanceMatrix(distances, ids=abundance.index)
-        
         return dm
+    
     except Exception as e:
         print(f"Error calculating beta diversity: {str(e)}")
-        # Create an empty distance matrix as fallback
+        # Create a minimal valid distance matrix as fallback
         n = len(abundance.index)
-        empty_distances = np.zeros((n, n))
-        dm = DistanceMatrix(empty_distances, ids=abundance.index)
-        return dm
-    
-    
+        # Identity matrix (zeros on diagonal, ones elsewhere) ensures a valid distance matrix
+        fallback_distances = np.ones((n, n)) - np.eye(n)
+        dm = DistanceMatrix(fallback_distances, ids=abundance.index)
+        return dm    
+
 def perform_permanova(distance_matrix, metadata_df, variable):
     """
     Perform PERMANOVA test to determine if community composition differs between groups.
@@ -284,15 +293,41 @@ def perform_permanova(distance_matrix, metadata_df, variable):
     # Reorder distance matrix to match metadata
     distance_matrix = distance_matrix.filter(metadata_filtered.index)
     
-    # Perform PERMANOVA
-    result = permanova(distance_matrix, metadata_filtered[variable])
+    # Verify groups have enough samples
+    group_counts = metadata_filtered[variable].value_counts()
+    valid_groups = group_counts[group_counts >= 2].index
     
-    return {
-        'test-statistic': result['test statistic'],
-        'p-value': result['p-value'],
-        'sample size': result['sample size']
-    }
-
+    if len(valid_groups) < 2:
+        print(f"Warning: Not enough groups with sufficient samples for PERMANOVA")
+        return {
+            'test-statistic': float('nan'),
+            'p-value': 1.0,
+            'sample size': len(metadata_filtered),
+            'note': 'Insufficient group sizes for valid test'
+        }
+    
+    # Filter to only include valid groups
+    if len(valid_groups) < len(group_counts):
+        metadata_filtered = metadata_filtered[metadata_filtered[variable].isin(valid_groups)]
+        distance_matrix = distance_matrix.filter(metadata_filtered.index)
+    
+    try:
+        # Perform PERMANOVA
+        result = permanova(distance_matrix, metadata_filtered[variable], permutations=999)
+        
+        return {
+            'test-statistic': result['test statistic'],
+            'p-value': result['p-value'],
+            'sample size': result['sample size']
+        }
+    except Exception as e:
+        print(f"Error in PERMANOVA: {str(e)}")
+        return {
+            'test-statistic': float('nan'),
+            'p-value': float('nan'),
+            'sample size': len(metadata_filtered),
+            'note': f'Error performing test: {str(e)}'
+        }
 
 def plot_beta_diversity_ordination(distance_matrix, metadata_df, variable, method='PCoA'):
     """
@@ -323,32 +358,43 @@ def plot_beta_diversity_ordination(distance_matrix, metadata_df, variable, metho
     
     # Perform ordination
     if method == 'PCoA':
-        ordination_result = pcoa(distance_matrix)
-        
-        # Extract first two axes
-        pc1 = ordination_result.samples['PC1']
-        pc2 = ordination_result.samples['PC2']
-        explained_var = ordination_result.proportion_explained
-        
-        # Create DataFrame for plotting
-        plot_df = pd.DataFrame({
-            'PC1': pc1,
-            'PC2': pc2,
-            variable: metadata_filtered[variable]
-        }, index=metadata_filtered.index)
-        
-        # Create plot
-        fig, ax = plt.subplots(figsize=(10, 8))
-        sns.scatterplot(x='PC1', y='PC2', hue=variable, data=plot_df, ax=ax)
-        ax.set_xlabel(f'PC1 ({explained_var[0]:.2%} explained)')
-        ax.set_ylabel(f'PC2 ({explained_var[1]:.2%} explained)')
-        ax.set_title('PCoA of Beta Diversity')
-        
+        try:
+            ordination_result = pcoa(distance_matrix)
+            
+            # Extract first two axes
+            pc1 = ordination_result.samples.iloc[:, 0]  # Use iloc instead of ['PC1']
+            pc2 = ordination_result.samples.iloc[:, 1]  # Use iloc instead of ['PC2']
+            explained_var = ordination_result.proportion_explained
+            
+            # Create DataFrame for plotting
+            plot_df = pd.DataFrame({
+                'PC1': pc1,
+                'PC2': pc2,
+                variable: metadata_filtered[variable]
+            }, index=metadata_filtered.index)
+            
+            # Create plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            sns.scatterplot(x='PC1', y='PC2', hue=variable, data=plot_df, ax=ax)
+            
+            # Use iloc to access proportion explained values
+            ax.set_xlabel(f'PC1 ({explained_var.iloc[0]:.2%} explained)')
+            ax.set_ylabel(f'PC2 ({explained_var.iloc[1]:.2%} explained)')
+            ax.set_title('PCoA of Beta Diversity')
+            
+        except Exception as e:
+            print(f"Error in ordination: {str(e)}")
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.text(0.5, 0.5, f"Error creating ordination plot:\n{str(e)}",
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=12, color='red')
+            ax.set_title('PCoA of Beta Diversity')
+            ax.axis('off')
+            
     else:
         raise ValueError(f"Unsupported ordination method: {method}")
     
     return fig
-
 
 def differential_abundance_analysis(abundance_df, metadata_df, variable, method='wilcoxon'):
     """
