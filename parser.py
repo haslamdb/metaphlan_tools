@@ -6,98 +6,95 @@ import numpy as np
 import re
 
 
-def parse_metaphlan_file(file_path, sample_id=None):
+def parse_metaphlan_file(file_path, taxonomic_level='species'):
     """
-    Parse a MetaPhlAn output file and extract species-level information.
+    Parse a MetaPhlAn output file and extract abundances at a specific taxonomic level.
+    This is a robust parser that handles various MetaPhlAn file formats and edge cases.
     
     Parameters:
     -----------
     file_path : str
         Path to the MetaPhlAn output file
-    sample_id : str, optional
-        Sample ID to associate with this data. If None, will try to extract from filename
+    taxonomic_level : str, optional
+        Taxonomic level to extract (default: 'species')
         
     Returns:
     --------
     pandas.DataFrame
-        DataFrame containing species-level relative abundances
+        DataFrame with species as index and abundance as values
     """
-    # If sample_id is not provided, try to extract from filename
-    if sample_id is None:
-        sample_id = os.path.basename(file_path).split('.')[0]
+    # Define taxonomic prefixes for filtering
+    level_prefixes = {
+        'kingdom': 'k__',
+        'phylum': 'p__',
+        'class': 'c__',
+        'order': 'o__',
+        'family': 'f__',
+        'genus': 'g__',
+        'species': 's__'
+    }
     
-    # Read the MetaPhlAn output file
-    try:
-        df = pd.read_csv(file_path, sep='\t', header=0, comment='#')
-    except pd.errors.EmptyDataError:
-        print(f"Warning: Empty file or parsing error for {file_path}")
-        return pd.DataFrame()
+    if taxonomic_level not in level_prefixes:
+        raise ValueError(f"Invalid taxonomic level: {taxonomic_level}. "
+                        f"Must be one of {list(level_prefixes.keys())}")
     
-    # Get the column containing taxonomic information (usually the first column)
-    if df.shape[1] < 2:
-        print(f"Warning: File format error in {file_path}")
-        return pd.DataFrame()
+    target_prefix = level_prefixes[taxonomic_level]
+    abundance_data = {}
     
-    # Assume first column contains taxonomic info, second column contains abundance
-    tax_col = df.columns[0]
-    abund_col = df.columns[1]
+    # Manually parse the file line by line for maximum robustness
+    with open(file_path, 'r') as f:
+        for line_num, line in enumerate(f, 1):
+            # Skip comment lines except header comment
+            if line.startswith('#') and not line.startswith('#clade_name'):
+                continue
+                
+            # Skip empty lines
+            if not line.strip():
+                continue
+            
+            # Split by tabs
+            parts = line.strip().split('\t')
+            
+            # Need at least 2 parts for parsing (taxonomy and abundance)
+            if len(parts) < 2:
+                print(f"Warning: Line {line_num} in {file_path} has fewer than 2 columns, skipping")
+                continue
+                
+            # First column is taxonomy, last column is abundance (for safety)
+            taxonomy = parts[0]
+            try:
+                # Try parsing with different column positions
+                if len(parts) >= 3 and re.match(r'^[\d.]+$', parts[2]):
+                    # Standard format: taxonomy, NCBI IDs, abundance
+                    abundance = float(parts[2])
+                elif len(parts) >= 2 and re.match(r'^[\d.]+$', parts[1]):
+                    # Simplified format: taxonomy, abundance
+                    abundance = float(parts[1])
+                else:
+                    # Last chance: try last column
+                    abundance = float(parts[-1])
+            except (ValueError, IndexError):
+                print(f"Warning: Could not parse abundance in line {line_num} of {file_path}, skipping")
+                continue
+                
+            # Check if this line contains the target taxonomic level
+            if target_prefix in taxonomy:
+                # Extract the name of the taxon at the target level
+                taxon_parts = taxonomy.split('|')
+                for part in taxon_parts:
+                    if part.startswith(target_prefix):
+                        taxon_name = part.replace(target_prefix, '')
+                        abundance_data[taxon_name] = abundance
+                        break
     
-    # Filter to only include species level entries
-    species_df = df[df[tax_col].str.contains('s__[^|]', regex=True)]
+    if not abundance_data:
+        raise ValueError(f"No {taxonomic_level}-level taxa found in {file_path}")
     
-    # Extract species names
-    species_df['Species'] = species_df[tax_col].apply(
-        lambda x: re.search(r's__([^|]+)(?:\|t__[^|]+)?$', x).group(1) if re.search(r's__([^|]+)(?:\|t__[^|]+)?$', x) else None
-    )
+    # Convert to DataFrame
+    df = pd.DataFrame(list(abundance_data.items()), columns=['Taxon', 'abundance'])
+    df.set_index('Taxon', inplace=True)
     
-    # Create a new DataFrame with species as index and sample as column
-    result_df = pd.DataFrame({
-        'Species': species_df['Species'],
-        sample_id: species_df[abund_col]
-    }).set_index('Species')
-    
-    return result_df
-
-
-def combine_samples(file_paths, sample_ids=None):
-    """
-    Parse multiple MetaPhlAn output files and combine them into a single DataFrame.
-    
-    Parameters:
-    -----------
-    file_paths : list
-        List of paths to MetaPhlAn output files
-    sample_ids : list, optional
-        List of sample IDs to associate with each file
-        
-    Returns:
-    --------
-    pandas.DataFrame
-        Combined DataFrame containing species-level relative abundances for all samples
-    """
-    # If sample_ids not provided, extract from filenames
-    if sample_ids is None:
-        sample_ids = [os.path.basename(fp).split('.')[0] for fp in file_paths]
-    
-    # Check that the lengths match
-    if len(file_paths) != len(sample_ids):
-        raise ValueError("Number of file paths and sample IDs must match")
-    
-    # Parse each file
-    dfs = []
-    for fp, sid in zip(file_paths, sample_ids):
-        df = parse_metaphlan_file(fp, sid)
-        if not df.empty:
-            dfs.append(df)
-    
-    # Combine all dataframes
-    if dfs:
-        combined_df = pd.concat(dfs, axis=1)
-        # Fill NaN values with 0 (species not detected in a sample)
-        combined_df = combined_df.fillna(0)
-        return combined_df
-    else:
-        return pd.DataFrame()
+    return df
 
 
 def load_metadata(metadata_file, sample_id_col='SampleID'):
@@ -136,6 +133,91 @@ def load_metadata(metadata_file, sample_id_col='SampleID'):
     return metadata
 
 
+def combine_samples(files, sample_ids=None, taxonomic_level='species'):
+    """
+    Combine multiple MetaPhlAn output files into a single abundance table.
+    This patched version handles duplicate species indices and various file formats.
+    
+    Parameters:
+    -----------
+    files : list
+        List of file paths to MetaPhlAn output files
+    sample_ids : list, optional
+        List of sample IDs corresponding to each file
+    taxonomic_level : str, optional
+        Taxonomic level to extract (default: 'species')
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        Combined abundance table with species as rows and samples as columns
+    """
+    dfs = []
+    successful_files = []
+    successful_sample_ids = []
+    
+    if sample_ids is None:
+        # Use file names as sample IDs
+        sample_ids = [os.path.basename(f).split('.')[0] for f in files]
+    
+    if len(files) != len(sample_ids):
+        raise ValueError("Number of files must match number of sample IDs")
+    
+    for i, file_path in enumerate(files):
+        try:
+            # Parse the MetaPhlAn file using our robust parser
+            print(f"Processing file {i+1}/{len(files)}: {os.path.basename(file_path)}")
+            df = patched_parse_metaphlan_file(file_path, taxonomic_level)
+            
+            # Set column name to sample ID
+            df.columns = [sample_ids[i]]
+            
+            # Check for duplicate indices and handle them
+            if df.index.duplicated().any():
+                print(f"Warning: Found duplicate taxa in {sample_ids[i]}, keeping first occurrence")
+                df = df[~df.index.duplicated(keep='first')]
+            
+            dfs.append(df)
+            successful_files.append(file_path)
+            successful_sample_ids.append(sample_ids[i])
+            print(f"Successfully processed {os.path.basename(file_path)}")
+        except Exception as e:
+            print(f"Error processing {file_path}: {str(e)}")
+            continue
+    
+    if not dfs:
+        # Print more helpful diagnostic information
+        print("\nDiagnostic information:")
+        print(f"Total files attempted: {len(files)}")
+        print(f"Files that failed: {len(files)}")
+        
+        # Try to read the first few lines of the first file
+        if files:
+            try:
+                print(f"\nFirst few lines of {files[0]}:")
+                with open(files[0], 'r') as f:
+                    for i, line in enumerate(f):
+                        if i < 5:  # Print first 5 lines
+                            print(f"Line {i+1}: {line.strip()}")
+                        else:
+                            break
+            except Exception as e:
+                print(f"Could not read file for diagnostics: {str(e)}")
+                
+        raise ValueError("No valid data frames to combine. Check file formats and error messages above.")
+    
+    print(f"\nSuccessfully processed {len(dfs)}/{len(files)} files")
+    
+    # Combine along columns (each sample is a column)
+    combined_df = pd.concat(dfs, axis=1)
+    
+    # Fill missing values with zeros
+    combined_df = combined_df.fillna(0)
+    
+    return combined_df
+
+
+
 def join_abundance_with_metadata(abundance_df, metadata_df):
     """
     Join the abundance table with metadata.
@@ -164,3 +246,37 @@ def join_abundance_with_metadata(abundance_df, metadata_df):
     joined_df = abundance_transposed.join(metadata_df, how='inner')
     
     return joined_df
+
+
+def diagnostic_file_check(file_path):
+    """
+    Perform a diagnostic check on a MetaPhlAn file to understand its structure.
+    """
+    try:
+        print(f"\nDiagnostic check of {file_path}:")
+        
+        # Try to count lines and columns in the file
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            
+        print(f"Total lines in file: {len(lines)}")
+        
+        # Check first 5 lines
+        for i, line in enumerate(lines[:5]):
+            stripped = line.strip()
+            parts = stripped.split('\t')
+            print(f"Line {i+1}: {len(parts)} columns, Content: {stripped[:80]}{'...' if len(stripped) > 80 else ''}")
+            
+        # Look for species lines
+        species_count = 0
+        for line in lines:
+            if 's__' in line:
+                species_count += 1
+                
+        print(f"Lines containing species entries (s__): {species_count}")
+        
+        return True
+    except Exception as e:
+        print(f"Diagnostic check failed: {str(e)}")
+        return False
+
