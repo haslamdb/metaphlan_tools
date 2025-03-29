@@ -200,6 +200,7 @@ def compare_alpha_diversity(alpha_df, metadata_df, variable):
     
     return results
 
+
 def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     """
     Calculate beta diversity distance matrix.
@@ -328,6 +329,72 @@ def perform_permanova(distance_matrix, metadata_df, variable):
             'sample size': len(metadata_filtered),
             'note': f'Error performing test: {str(e)}'
         }
+    
+def plot_ordination(beta_dm, metadata_df, var, method='PCoA'):
+    """
+    Safely create ordination plot with better handling for negative eigenvalues.
+    """
+    try:
+        from skbio.stats.ordination import pcoa
+        import seaborn as sns
+        
+        # Perform PCoA with correction for negative eigenvalues
+        pcoa_results = pcoa(beta_dm, method='eigh')  # Use 'eigh' method which better handles negative eigenvalues
+        
+        # Get the first two principal coordinates
+        pc1 = pcoa_results.samples.iloc[:, 0]
+        pc2 = pcoa_results.samples.iloc[:, 1]
+        
+        # Filter metadata to only include samples in the distance matrix
+        common_samples = list(set(beta_dm.ids).intersection(set(metadata_df.index)))
+        
+        # Create a DataFrame for plotting with only common samples
+        plot_df = pd.DataFrame({
+            'PC1': pc1,
+            'PC2': pc2,
+            'Sample': beta_dm.ids
+        })
+        
+        # Join with filtered metadata to get the grouping variable
+        plot_df = plot_df.set_index('Sample')
+        plot_df[var] = metadata_df.loc[common_samples, var]
+        
+        # Calculate variance explained
+        variance_explained = pcoa_results.proportion_explained
+        pc1_var = variance_explained[0] * 100
+        pc2_var = variance_explained[1] * 100
+        
+        # Create plot
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.scatterplot(data=plot_df, x='PC1', y='PC2', hue=var, s=100, ax=ax)
+        
+        # Add axis labels with variance explained
+        ax.set_xlabel(f'PC1 ({pc1_var:.1f}% variance explained)')
+        ax.set_ylabel(f'PC2 ({pc2_var:.1f}% variance explained)')
+        
+        # Add title and legend
+        ax.set_title(f'{method} of Beta Diversity ({var})')
+        plt.tight_layout()
+        
+        return fig
+        
+    except Exception as e:
+        print(f"Error creating ordination plot: {str(e)}")
+        
+        # Create a simple error message plot with more diagnostics
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5, f"Error creating ordination plot:\n{str(e)}",
+               ha='center', va='center', fontsize=12)
+        ax.set_title(f'{method} of Beta Diversity ({var})')
+        ax.axis('off')
+        
+        # Print more diagnostic information
+        print(f"Distance matrix shape: {beta_dm.shape}")
+        print(f"Number of samples in metadata with group variable {var}: {metadata_df[var].count()}")
+        print(f"Groups in {var}: {metadata_df[var].unique()}")
+        
+        return fig
+    
 
 def plot_beta_diversity_ordination(distance_matrix, metadata_df, variable, method='PCoA'):
     """
