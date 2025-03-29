@@ -22,9 +22,9 @@ setup(
             "metaphlan_tools=metaphlan_tools.cli:main",
         ],
     },
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="David Haslam",
+    author_email="dbhaslam@gmail.com",
     description="A package for analyzing nasal microbiome data from MetaPhlAn outputs",
     keywords="microbiome, metagenomics, metaphlan, bioinformatics",
-    python_requires=">=3.8",
+    python_requires=">=3.12",
 )
