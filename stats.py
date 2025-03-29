@@ -216,28 +216,30 @@ def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     skbio.DistanceMatrix
         Distance matrix of beta diversity between samples
     """
+    # Import required modules
+    from skbio import DistanceMatrix
+    from scipy.spatial.distance import pdist, squareform
+    
     # Transpose to have samples as rows, species as columns
     abundance = abundance_df.T
     
     # Convert to numpy array
     abundance_array = abundance.values
     
-    # Calculate distance matrix
+    # Calculate distance matrix using scipy's pdist
     if metric == 'braycurtis':
-        from skbio.diversity.beta import braycurtis
-        distances = braycurtis(abundance_array)
+        distances = squareform(pdist(abundance_array, metric='braycurtis'))
     elif metric == 'jaccard':
-        from skbio.diversity.beta import jaccard
-        distances = jaccard(abundance_array)
+        distances = squareform(pdist(abundance_array, metric='jaccard'))
+    elif metric == 'euclidean':
+        distances = squareform(pdist(abundance_array, metric='euclidean'))
     else:
         raise ValueError(f"Unsupported beta diversity metric: {metric}")
     
     # Create distance matrix
-    from skbio import DistanceMatrix
     dm = DistanceMatrix(distances, ids=abundance.index)
     
     return dm
-
 
 def perform_permanova(distance_matrix, metadata_df, variable):
     """
