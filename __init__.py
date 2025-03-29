@@ -12,7 +12,8 @@ from .stats import (
     compare_alpha_diversity,
     calculate_beta_diversity,
     perform_permanova,
-    differential_abundance_analysis
+    differential_abundance_analysis,
+    plot_ordination
 )
 
 from .viz import (
