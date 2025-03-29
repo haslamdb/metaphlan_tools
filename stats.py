@@ -34,15 +34,38 @@ def calculate_alpha_diversity(abundance_df, metrics=None):
     # Transpose to have samples as rows
     abundance = abundance_df.T
     
+    # Ensure all values are numeric
+    abundance = abundance.apply(pd.to_numeric, errors='coerce')
+    
+    # Replace any NaN values with zeros
+    abundance = abundance.fillna(0)
+    
     # Initialize results DataFrame
     results = pd.DataFrame(index=abundance.index)
     
     # Calculate each metric
     for metric in metrics:
         if metric == 'shannon':
-            results['Shannon'] = abundance.apply(lambda x: alpha_diversity.shannon(x), axis=1)
+            # Use try-except to catch and handle errors
+            try:
+                results['Shannon'] = abundance.apply(
+                    lambda x: alpha_diversity.shannon(x) if not x.isna().any() else np.nan, 
+                    axis=1
+                )
+            except Exception as e:
+                print(f"Error calculating Shannon diversity: {str(e)}")
+                results['Shannon'] = np.nan
+                
         elif metric == 'simpson':
-            results['Simpson'] = abundance.apply(lambda x: alpha_diversity.simpson(x), axis=1)
+            try:
+                results['Simpson'] = abundance.apply(
+                    lambda x: alpha_diversity.simpson(x) if not x.isna().any() else np.nan, 
+                    axis=1
+                )
+            except Exception as e:
+                print(f"Error calculating Simpson diversity: {str(e)}")
+                results['Simpson'] = np.nan
+                
         elif metric == 'observed_otus':
             results['Observed'] = abundance.apply(lambda x: (x > 0).sum(), axis=1)
     
