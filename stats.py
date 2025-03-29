@@ -101,6 +101,16 @@ def compare_alpha_diversity(alpha_df, metadata_df, variable):
     
     # Test each metric
     for metric in alpha_df.columns:
+        # Skip if all values are identical
+        if merged[metric].nunique() <= 1:
+            results[metric] = {
+                'test': 'None',
+                'statistic': None,
+                'p-value': None,
+                'note': 'All values are identical, no statistical test performed'
+            }
+            continue
+            
         # For binary variables
         unique_values = merged[variable].nunique()
         
@@ -108,25 +118,87 @@ def compare_alpha_diversity(alpha_df, metadata_df, variable):
             # Use Mann-Whitney U test
             groups = merged.groupby(variable)[metric].apply(list).to_dict()
             group_values = list(groups.values())
-            stat, pval = stats.mannwhitneyu(*group_values)
-            test_name = 'Mann-Whitney U'
+            
+            # Check if any group has all identical values
+            identical_values = any(len(set(group)) == 1 for group in group_values)
+            
+            if identical_values:
+                results[metric] = {
+                    'test': 'Mann-Whitney U',
+                    'statistic': None,
+                    'p-value': None,
+                    'note': 'Some groups have identical values, test could not be performed'
+                }
+            else:
+                try:
+                    stat, pval = stats.mannwhitneyu(*group_values)
+                    test_name = 'Mann-Whitney U'
+                    results[metric] = {
+                        'test': test_name,
+                        'statistic': stat,
+                        'p-value': pval
+                    }
+                except Exception as e:
+                    results[metric] = {
+                        'test': 'Mann-Whitney U',
+                        'statistic': None,
+                        'p-value': None,
+                        'note': f'Error performing test: {str(e)}'
+                    }
+                
         elif 2 < unique_values <= 10:
             # Use Kruskal-Wallis test
-            stat, pval = stats.kruskal(*[group[metric].values for name, group in merged.groupby(variable)])
-            test_name = 'Kruskal-Wallis'
+            group_data = [group[metric].values for name, group in merged.groupby(variable)]
+            
+            # Check if all values in any group are identical
+            identical_values = any(len(set(group)) == 1 for group in group_data)
+            
+            # Check if all values across all groups are identical
+            all_identical = len(set(np.concatenate(group_data))) == 1
+            
+            if all_identical:
+                results[metric] = {
+                    'test': 'Kruskal-Wallis',
+                    'statistic': None,
+                    'p-value': None,
+                    'note': 'All values are identical across groups, test could not be performed'
+                }
+            else:
+                try:
+                    stat, pval = stats.kruskal(*group_data)
+                    test_name = 'Kruskal-Wallis'
+                    results[metric] = {
+                        'test': test_name,
+                        'statistic': stat,
+                        'p-value': pval
+                    }
+                except ValueError as e:
+                    results[metric] = {
+                        'test': 'Kruskal-Wallis',
+                        'statistic': None,
+                        'p-value': None,
+                        'note': f'Error performing test: {str(e)}'
+                    }
+                
         else:
             # Use correlation for continuous variables
-            stat, pval = stats.spearmanr(merged[metric], merged[variable])
-            test_name = 'Spearman correlation'
-        
-        results[metric] = {
-            'test': test_name,
-            'statistic': stat,
-            'p-value': pval
-        }
+            try:
+                stat, pval = stats.spearmanr(merged[metric], merged[variable])
+                test_name = 'Spearman correlation'
+                results[metric] = {
+                    'test': test_name,
+                    'statistic': stat,
+                    'p-value': pval
+                }
+            except Exception as e:
+                results[metric] = {
+                    'test': 'Spearman correlation',
+                    'statistic': None,
+                    'p-value': None,
+                    'note': f'Error performing test: {str(e)}'
+                }
     
     return results
-
 
 def calculate_beta_diversity(abundance_df, metric='braycurtis'):
     """
